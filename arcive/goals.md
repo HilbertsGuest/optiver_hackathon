@@ -1,0 +1,5 @@
+- Price discrepancy between orderbooks
+- Delta approaching zero strategy
+- Bid-ask spread management
+- Dual listing = any asset on two different exchanges (PHILLIPS_A / PHILLIPS_B)
+- arbitrage strategy 
