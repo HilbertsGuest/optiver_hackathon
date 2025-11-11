@@ -253,6 +253,8 @@ def handle_signal(signal):
     if signal is None:
         return
 
+    print(f"\n--- VALIDATING SIGNAL: {signal['type']} ---")
+
     # --- 1. Get Current State ---
     portfolio_state = portfolio.get_state()
     if portfolio_state is None:
@@ -301,18 +303,27 @@ def handle_signal(signal):
 
         # SCENARIO: "if volume is locked" (guide.md line 50-61)
         # Check if there is enough liquidity to fill entire order
-        if vol_a < trade_params['amount'] * MIN_VOLUME_RATIO:
-            print(f"⚠ VOLUME LOCKED for {ASSET_A}. Need {trade_params['amount']}, only {vol_a} available. Aborting.")
+        min_vol_a = trade_params['amount'] * MIN_VOLUME_RATIO
+        min_vol_b = trade_params['amount'] * MIN_VOLUME_RATIO
+
+        print(f"Volume check: {ASSET_A} has {vol_a} (need {min_vol_a:.1f}), {ASSET_B} has {vol_b} (need {min_vol_b:.1f})")
+
+        if vol_a < min_vol_a:
+            print(f"⚠ VOLUME LOCKED for {ASSET_A}. Need {min_vol_a:.1f}, only {vol_a} available. Aborting.")
             return
 
-        if vol_b < trade_params['amount'] * MIN_VOLUME_RATIO:
-            print(f"⚠ VOLUME LOCKED for {ASSET_B}. Need {trade_params['amount']}, only {vol_b} available. Aborting.")
+        if vol_b < min_vol_b:
+            print(f"⚠ VOLUME LOCKED for {ASSET_B}. Need {min_vol_b:.1f}, only {vol_b} available. Aborting.")
             return
+
+        print(f"✓ Volume check passed")
 
         # SCENARIO: "if slippage is there" (guide.md line 63-77)
         # Check if bid-ask spread is too wide (volatility/illiquidity indicator)
         spread_a = book_a.asks[0].price - book_a.bids[0].price
         spread_b = book_b.asks[0].price - book_b.bids[0].price
+
+        print(f"Slippage check: {ASSET_A} spread={spread_a:.2f} (max {MAX_ACCEPTABLE_SPREAD_A:.2f}), {ASSET_B} spread={spread_b:.2f} (max {MAX_ACCEPTABLE_SPREAD_B:.2f})")
 
         if spread_a > MAX_ACCEPTABLE_SPREAD_A:
             print(f"⚠ SLIPPAGE RISK HIGH for {ASSET_A}. Spread is {spread_a:.2f}. Aborting.")
@@ -321,6 +332,8 @@ def handle_signal(signal):
         if spread_b > MAX_ACCEPTABLE_SPREAD_B:
             print(f"⚠ SLIPPAGE RISK HIGH for {ASSET_B}. Spread is {spread_b:.2f}. Aborting.")
             return
+
+        print(f"✓ Slippage check passed")
 
         # --- 4. Final Check: Is trade STILL profitable? (guide.md line 79-91)
         # Signal was based on mid-prices, but we execute on bid/ask
@@ -331,6 +344,8 @@ def handle_signal(signal):
         upper_threshold = data_handler.mean + (ENTRY_THRESHOLD_STDEV * data_handler.std_dev)
         lower_threshold = data_handler.mean - (ENTRY_THRESHOLD_STDEV * data_handler.std_dev)
 
+        print(f"Front-run check: Exec spread={execution_spread:.4f}, Bands=[{lower_threshold:.4f}, {upper_threshold:.4f}], Signal={signal['type']}")
+
         # Check if actual execution spread still meets criteria (with tolerance)
         if signal['type'] == 'OPEN_SHORT_PAIR' and execution_spread < (upper_threshold - FRONT_RUN_TOLERANCE):
             print(f"⚠ FRONT-RUN/SLIPPED. Signal invalid at execution prices. Spread {execution_spread:.4f} < {upper_threshold:.4f}. Aborting.")
@@ -339,6 +354,8 @@ def handle_signal(signal):
         if signal['type'] == 'OPEN_LONG_PAIR' and execution_spread > (lower_threshold + FRONT_RUN_TOLERANCE):
             print(f"⚠ FRONT-RUN/SLIPPED. Signal invalid at execution prices. Spread {execution_spread:.4f} > {lower_threshold:.4f}. Aborting.")
             return
+
+        print(f"✓ Front-run check passed")
 
         # --- 5. EXECUTION ---
         # All checks passed!
@@ -726,9 +743,17 @@ def main():
                 portfolio.current_position
             )
 
-            # 3. EXECUTION HANDLER: Validate and execute
+            # Show signal status
             if signal:
+                print(f"\n>>> SIGNAL DETECTED: {signal['type']} - {signal['reason']}")
+                # 3. EXECUTION HANDLER: Validate and execute
                 handle_signal(signal)
+            else:
+                # Show why no signal (every 5 iterations to avoid spam)
+                if iteration % 5 == 0:
+                    upper = data_handler.mean + (ENTRY_THRESHOLD_STDEV * data_handler.std_dev)
+                    lower = data_handler.mean - (ENTRY_THRESHOLD_STDEV * data_handler.std_dev)
+                    print(f"No signal: spread {spread:.4f} within bands [{lower:.4f}, {upper:.4f}], position={portfolio.current_position or 'None'}")
 
             time.sleep(SLEEP_TIME)
 
