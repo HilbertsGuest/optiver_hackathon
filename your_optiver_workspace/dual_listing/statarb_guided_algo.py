@@ -29,11 +29,11 @@ ASSET_B = "PHILLIPS_B"
 
 # Position Limits
 POSITION_LIMIT = 100
-MAX_POSITION_SIZE = 50  # Maximum size per trade
+MAX_POSITION_SIZE = 10  # Maximum size per trade (reduced to match available liquidity)
 
 # Statistical Parameters
 SPREAD_HISTORY_LENGTH = 100  # Number of data points for mean/std calculation
-ENTRY_THRESHOLD_STDEV = 1.0  # Enter when spread > mean ± 2*std
+ENTRY_THRESHOLD_STDEV = 0.8  # Enter when spread > mean ± 0.8*std (more sensitive)
 EXIT_THRESHOLD_STDEV = 0.2   # Exit when spread approaches mean (within 0.2*std)
 
 # Perfect Fungibility Assumption
@@ -43,16 +43,17 @@ ASSUME_PERFECT_FUNGIBILITY = True  # Assume prices will converge to 1.0
 THEORETICAL_PARITY = 1.0  # The spread should be exactly 1.0 if prices are equal
 
 # Guard-Rail Thresholds (Following guide.md Section 3)
-MAX_ACCEPTABLE_SPREAD_A = 0.50  # Maximum bid-ask spread for ASSET_A
-MAX_ACCEPTABLE_SPREAD_B = 0.50  # Maximum bid-ask spread for ASSET_B
-MIN_VOLUME_RATIO = 1.0  # Must have at least 1x our trade size available
+MAX_ACCEPTABLE_SPREAD_A = 2.0  # Maximum bid-ask spread for ASSET_A (increased for market conditions)
+MAX_ACCEPTABLE_SPREAD_B = 2.0  # Maximum bid-ask spread for ASSET_B (increased for market conditions)
+MIN_VOLUME_RATIO = 0.1  # Must have at least 0.1x our trade size available (1 unit for 10 size)
 
 # Risk Management
 TRADING_DISABLED = False  # Global kill switch
 MIN_REQUIRED_MARGIN = 100  # Minimum cash required to trade
+FRONT_RUN_TOLERANCE = 0.005  # Allow 0.5% tolerance for spread movement before aborting
 
 # Timing
-SLEEP_TIME = 0.5
+SLEEP_TIME = 0.2  # Faster checking for more opportunities
 DISPLAY_INTERVAL = 20
 
 # ============================================================================
@@ -330,12 +331,12 @@ def handle_signal(signal):
         upper_threshold = data_handler.mean + (ENTRY_THRESHOLD_STDEV * data_handler.std_dev)
         lower_threshold = data_handler.mean - (ENTRY_THRESHOLD_STDEV * data_handler.std_dev)
 
-        # Check if actual execution spread still meets criteria
-        if signal['type'] == 'OPEN_SHORT_PAIR' and execution_spread < upper_threshold:
+        # Check if actual execution spread still meets criteria (with tolerance)
+        if signal['type'] == 'OPEN_SHORT_PAIR' and execution_spread < (upper_threshold - FRONT_RUN_TOLERANCE):
             print(f"⚠ FRONT-RUN/SLIPPED. Signal invalid at execution prices. Spread {execution_spread:.4f} < {upper_threshold:.4f}. Aborting.")
             return
 
-        if signal['type'] == 'OPEN_LONG_PAIR' and execution_spread > lower_threshold:
+        if signal['type'] == 'OPEN_LONG_PAIR' and execution_spread > (lower_threshold + FRONT_RUN_TOLERANCE):
             print(f"⚠ FRONT-RUN/SLIPPED. Signal invalid at execution prices. Spread {execution_spread:.4f} > {lower_threshold:.4f}. Aborting.")
             return
 
